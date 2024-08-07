@@ -1,5 +1,6 @@
 import datetime
 import subprocess
+import requests
 from pathlib import Path
 
 from pywidevine import PSSH
@@ -85,6 +86,27 @@ class DownloaderSong:
             else:
                 return None
         return next(i["file_id"] for i in audio_files if i["format"] == self.codec)
+    
+    def get_mbid_from_isrc(self, isrc: str) -> str:
+        if isrc is None:
+            return None
+        # request to musicbrainz api with User-Agent header
+        data = requests.get(f"https://musicbrainz.org/ws/2/isrc/{isrc}?fmt=json", headers={"User-Agent": "spotify-web-downloader (felipevm97@gmail.com)"})
+        res = data.json()
+        if res.get("error"):
+            return None
+        mbid = data.json()["recordings"][0]["id"]
+        return mbid
+    
+    def get_genres(self, mbid: str) -> str:
+        if mbid is None:
+            return None
+        # request to musicbrainz api
+        data = requests.get(f"https://beta.musicbrainz.org/ws/2/recording/{mbid}?fmt=json&inc=genres", headers={"User-Agent": "spotify-web-downloader (felipevm97@gmail.com)"})
+        genres = [genre["name"] for genre in data.json()["genres"]]
+        if len(genres) == 0:
+            return None
+        return ";".join(genres)
 
     def get_tags(
         self,
@@ -143,6 +165,7 @@ class DownloaderSong:
                 if i["disc_number"] == metadata_gid["disc_number"]
             ),
             "url": f"https://open.spotify.com/track/{self.downloader.spotify_api.gid_to_track_id(metadata_gid['gid'])}",
+            "genre": self.get_genres(self.get_mbid_from_isrc(isrc.get("id"))),
         }
         return tags
 
