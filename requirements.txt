@@ -3,3 +3,5 @@ pybase62
 pywidevine
 pyyaml
 yt-dlp
+spotipy
+git+https://github.com/felipemarinho97/python-musicbrainzngs

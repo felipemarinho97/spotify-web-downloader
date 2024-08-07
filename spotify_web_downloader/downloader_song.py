@@ -1,6 +1,9 @@
 import datetime
 import subprocess
 import requests
+import spotipy
+from spotipy.oauth2 import SpotifyClientCredentials
+import musicbrainzngs
 from pathlib import Path
 
 from pywidevine import PSSH
@@ -29,7 +32,9 @@ class DownloaderSong:
         self.template_file_multi_disc = template_file_multi_disc
         self.download_mode = download_mode
         self.premium_quality = premium_quality
+        self.sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials())
         self._set_codec()
+        musicbrainzngs.set_useragent("SpotifyWebDownloader", "0.1", "felipevm97@gmail.com")
 
     def _set_codec(self):
         self.codec = "MP4_256" if self.premium_quality else "MP4_128"
@@ -86,27 +91,44 @@ class DownloaderSong:
             else:
                 return None
         return next(i["file_id"] for i in audio_files if i["format"] == self.codec)
+
+    def get_genre_from_spotify(self, track_id: str) -> str:
+        # get track metadata
+        metadata = self.sp.track(track_id)
+        # get artist metadata
+        artist_id = metadata["artists"][0]["id"]
+        artist = self.sp.artist(artist_id)
+        genres = artist["genres"]
+        if len(genres) > 0:
+            return ";".join(genres)
     
     def get_mbid_from_isrc(self, isrc: str) -> str:
         if isrc is None:
             return None
-        # request to musicbrainz api with User-Agent header
-        data = requests.get(f"https://musicbrainz.org/ws/2/isrc/{isrc}?fmt=json", headers={"User-Agent": "spotify-web-downloader (felipevm97@gmail.com)"})
-        res = data.json()
-        if res.get("error"):
+        try:
+            recordings = musicbrainzngs.get_recordings_by_isrc(isrc)
+        except musicbrainzngs.musicbrainz.ResponseError:
             return None
-        mbid = data.json()["recordings"][0]["id"]
-        return mbid
+        else:
+            print(recordings)
+            if recordings["isrc"]["recording-count"] == 0:
+                return None
+            mbid = recordings["isrc"]["recording-list"][0]["id"]
+            return mbid
     
     def get_genres(self, mbid: str) -> str:
         if mbid is None:
             return None
-        # request to musicbrainz api
-        data = requests.get(f"https://beta.musicbrainz.org/ws/2/recording/{mbid}?fmt=json&inc=genres", headers={"User-Agent": "spotify-web-downloader (felipevm97@gmail.com)"})
-        genres = [genre["name"] for genre in data.json()["genres"]]
-        if len(genres) == 0:
+        try:
+            recording = musicbrainzngs.get_recording_by_id(mbid, includes=["genres"])
+        except musicbrainzngs.musicbrainz.ResponseError:
             return None
-        return ";".join(genres)
+        else:
+            print(recording)
+            genres = [genre["name"] for genre in recording["recording"]["genre-list"]]
+            if len(genres) == 0:
+                return None
+            return ";".join(genres)
 
     def get_tags(
         self,
@@ -133,6 +155,14 @@ class DownloaderSong:
             for role in track_credits["roleCredits"]
             if role["roleTitle"] == "Writers"
         )["artists"]
+        genres = album_metadata.get("genres")
+        if genres is not None:
+            genres = ";".join(genres)
+        if genres is None or len(genres) == 0:
+            genres = self.get_genres(self.get_mbid_from_isrc(isrc.get("id"))) 
+        if genres is None:
+            track_id = metadata_gid["canonical_uri"].split(":")[-1]
+            genres = self.get_genre_from_spotify(track_id)
         tags = {
             "album": album_metadata["name"],
             "album_artist": self.downloader.get_artist(album_metadata["artists"]),
@@ -165,7 +195,7 @@ class DownloaderSong:
                 if i["disc_number"] == metadata_gid["disc_number"]
             ),
             "url": f"https://open.spotify.com/track/{self.downloader.spotify_api.gid_to_track_id(metadata_gid['gid'])}",
-            "genre": self.get_genres(self.get_mbid_from_isrc(isrc.get("id"))),
+            "genre": genres,
         }
         return tags
 
