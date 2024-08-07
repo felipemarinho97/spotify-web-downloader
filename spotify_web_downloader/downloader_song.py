@@ -105,30 +105,32 @@ class DownloaderSong:
     def get_mbid_from_isrc(self, isrc: str) -> str:
         if isrc is None:
             return None
+        recordings = None
         try:
             recordings = musicbrainzngs.get_recordings_by_isrc(isrc)
-        except musicbrainzngs.musicbrainz.ResponseError:
+        except:
             return None
-        else:
-            print(recordings)
-            if recordings["isrc"]["recording-count"] == 0:
-                return None
-            mbid = recordings["isrc"]["recording-list"][0]["id"]
-            return mbid
+
+        if recordings is None or recordings["isrc"]["recording-count"] == 0:
+            return None
+        mbid = recordings["isrc"]["recording-list"][0]["id"]
+        return mbid
     
     def get_genres(self, mbid: str) -> str:
         if mbid is None:
             return None
+        recording = None
         try:
             recording = musicbrainzngs.get_recording_by_id(mbid, includes=["genres"])
-        except musicbrainzngs.musicbrainz.ResponseError:
+        except:
             return None
-        else:
-            print(recording)
-            genres = [genre["name"] for genre in recording["recording"]["genre-list"]]
-            if len(genres) == 0:
-                return None
-            return ";".join(genres)
+        if recording is None:
+            return None
+
+        genres = [genre["name"] for genre in recording["recording"]["genre-list"]]
+        if len(genres) == 0:
+            return None
+        return ";".join(genres)
 
     def get_tags(
         self,
