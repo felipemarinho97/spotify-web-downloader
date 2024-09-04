@@ -126,7 +126,10 @@ class DownloaderSong:
             return None
         if recording is None:
             return None
-
+        
+        # check if the recording has genres
+        if "genre-list" not in recording["recording"]:
+            return None
         genres = [genre["name"] for genre in recording["recording"]["genre-list"]]
         if len(genres) == 0:
             return None
